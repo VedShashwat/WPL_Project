@@ -1,3 +1,4 @@
+import logging
 import time
 
 from django.contrib import messages
@@ -10,6 +11,9 @@ from django.views.decorators.http import require_POST
 
 from .forms import CustomUserCreationForm
 from .models import PlayerProfile
+from .utils import fetch_coc_player
+
+logger = logging.getLogger(__name__)
 
 
 def auth_page(request):
@@ -71,4 +75,50 @@ def update_game_profile(request):
 		'current_rank': profile.current_rank,
 		'win_rate': profile.win_rate,
 		'platform': platform,
+	})
+
+
+@login_required
+@require_POST
+def link_coc_account(request):
+	player_tag = request.POST.get('player_tag', '').strip()
+	if not player_tag:
+		return JsonResponse({'success': False, 'message': 'player_tag is required.'}, status=400)
+
+	try:
+		logger.info(f'Fetching CoC player for tag: {player_tag}')
+		player_data = fetch_coc_player(player_tag)
+		profile, _ = PlayerProfile.objects.get_or_create(user=request.user)
+
+		normalized_tag = player_tag.upper().strip()
+		if normalized_tag.startswith('%23'):
+			normalized_tag = f'#{normalized_tag[3:]}'
+		elif not normalized_tag.startswith('#'):
+			normalized_tag = f'#{normalized_tag}'
+
+		profile.player_tag = normalized_tag
+		profile.game_id = player_data['name'] or profile.game_id
+		profile.trophies = int(player_data['trophies'])
+		profile.townhall_level = int(player_data['townHallLevel'])
+		profile.exp_level = int(player_data['expLevel'])
+		profile.save()
+
+		logger.info(f'Successfully linked CoC account for user {request.user.username}')
+	except ValueError as exc:
+		logger.error(f'ValueError linking CoC: {str(exc)}')
+		return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+	except RuntimeError as exc:
+		logger.error(f'RuntimeError linking CoC: {str(exc)}')
+		return JsonResponse({'success': False, 'message': str(exc)}, status=502)
+	except Exception as exc:
+		logger.error(f'Unexpected error linking CoC: {str(exc)}', exc_info=True)
+		return JsonResponse({'success': False, 'message': 'Failed to link account. Please check the player tag.'}, status=502)
+
+	return JsonResponse({
+		'success': True,
+		'player_tag': profile.player_tag,
+		'name': player_data['name'],
+		'trophies': profile.trophies,
+		'townHallLevel': profile.townhall_level,
+		'expLevel': profile.exp_level,
 	})
