@@ -16,6 +16,11 @@ from .utils import fetch_coc_player
 logger = logging.getLogger(__name__)
 
 
+def _display_name(user):
+	full_name = user.get_full_name().strip()
+	return full_name if full_name else user.username
+
+
 def auth_page(request):
 	if request.user.is_authenticated:
 		return redirect('dashboard')
@@ -49,6 +54,48 @@ def auth_page(request):
 def dashboard(request):
 	profile, _ = PlayerProfile.objects.get_or_create(user=request.user)
 	return render(request, 'core/dashboard.html', {'profile': profile})
+
+
+@login_required
+def leaderboard_data(request):
+	profiles = (
+		PlayerProfile.objects.select_related('user')
+		.order_by('-trophies', '-exp_level', 'user__username')
+	)
+
+	results = []
+	for index, profile in enumerate(profiles, start=1):
+		results.append({
+			'rank': index,
+			'profile_id': profile.id,
+			'player_name': _display_name(profile.user),
+			'trophies': profile.trophies,
+			'townhall_level': profile.townhall_level,
+		})
+
+	return JsonResponse({'players': results})
+
+
+@login_required
+def leaderboard_profile_data(request, profile_id):
+	try:
+		profile = PlayerProfile.objects.select_related('user').get(pk=profile_id)
+	except PlayerProfile.DoesNotExist:
+		return JsonResponse({'success': False, 'message': 'Profile not found.'}, status=404)
+
+	return JsonResponse({
+		'success': True,
+		'profile': {
+			'player_name': _display_name(profile.user),
+			'game_id': profile.game_id,
+			'current_rank': profile.current_rank,
+			'win_rate': profile.win_rate,
+			'player_tag': profile.player_tag,
+			'trophies': profile.trophies,
+			'townhall_level': profile.townhall_level,
+			'exp_level': profile.exp_level,
+		},
+	})
 
 
 @login_required
