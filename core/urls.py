@@ -11,6 +11,8 @@ urlpatterns = [
     path('leaderboard-profile/<int:profile_id>/', views.leaderboard_profile_data, name='leaderboard_profile_data'),
     path('submit-post/', views.submit_post, name='submit_post'),
     path('vote-post/<int:post_id>/', views.vote_post, name='vote_post'),
+    path('send-message/', views.send_message, name='send_message'),
+    path('get-messages/', views.get_messages, name='get_messages'),
     path('login/', views.auth_page, name='login'),
     path('logout/', auth_views.LogoutView.as_view(next_page='/login/'), name='logout'),
 ]

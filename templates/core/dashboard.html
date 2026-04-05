@@ -41,6 +41,18 @@
             background: rgba(15, 23, 42, 0.85);
             border: 1px solid rgba(148, 163, 184, 0.16);
         }
+        .chat-window {
+            max-height: 260px;
+            overflow-y: auto;
+            background: rgba(2, 6, 23, 0.6);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        .chat-message {
+            border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+        }
+        .chat-message:last-child {
+            border-bottom: none;
+        }
     </style>
 </head>
 <body>
@@ -210,6 +222,38 @@
                         </div>
                         <div class="progress bg-dark" style="height: 18px;">
                             <div class="progress-bar bg-success" id="win-rate-progress-bar" role="progressbar" style="width: {{ profile.win_rate }}%;" aria-valuenow="{{ profile.win_rate }}" aria-valuemin="0" aria-valuemax="100"></div>
+                        </div>
+                    </div>
+
+                    <div class="mb-2">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h3 class="h5 text-secondary mb-0">Global Chat</h3>
+                            <button class="btn btn-sm btn-outline-info" id="global-chat-toggle-btn" type="button" data-bs-toggle="collapse" data-bs-target="#globalChatCollapse" aria-expanded="true" aria-controls="globalChatCollapse">
+                                Toggle Chat
+                                <span class="badge text-bg-danger ms-2 d-none" id="global-chat-unread-badge">0</span>
+                            </button>
+                        </div>
+                        <div class="collapse show" id="globalChatCollapse">
+                            <div class="card community-post">
+                                <div class="card-body">
+                                    <div id="global-chat-window" class="chat-window rounded-3 p-2 mb-3">
+                                        {% for chat in chat_messages %}
+                                            <div class="chat-message py-2 px-2" data-chat-id="{{ chat.id }}">
+                                                <div class="small text-secondary">{{ chat.timestamp|date:'H:i:s' }}</div>
+                                                <div><span class="fw-semibold">{{ chat.user.get_full_name|default:chat.user.username }}:</span> {{ chat.message }}</div>
+                                            </div>
+                                        {% empty %}
+                                            <div id="global-chat-empty" class="text-secondary small p-2">No messages yet. Say hello.</div>
+                                        {% endfor %}
+                                    </div>
+                                    <form id="global-chat-form" class="d-flex gap-2">
+                                        {% csrf_token %}
+                                        <input type="text" class="form-control bg-dark text-light border-secondary" id="global-chat-input" name="message" maxlength="500" placeholder="Type a message..." required>
+                                        <button type="submit" class="btn btn-primary" id="global-chat-send">Send</button>
+                                    </form>
+                                    <div id="global-chat-status" class="small text-secondary mt-2">Connected</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -455,6 +499,17 @@
         const communityPostForm = $('#community-post-form');
         const communityPostInput = $('#communityPostInput');
         const communityStatus = $('#community-post-status');
+        const chatWindow = $('#global-chat-window');
+        const globalChatCollapse = $('#globalChatCollapse');
+        const chatUnreadBadge = $('#global-chat-unread-badge');
+        const chatForm = $('#global-chat-form');
+        const chatInput = $('#global-chat-input');
+        const chatStatus = $('#global-chat-status');
+        const chatSendButton = $('#global-chat-send');
+        const chatMessageIds = new Set();
+        let lastChatId = 0;
+        let chatPollTimer = null;
+        let unreadChatCount = 0;
 
         function getCsrfToken() {
             return communityPostForm.find('input[name="csrfmiddlewaretoken"]').val();
@@ -470,6 +525,87 @@
 
         function escapeHtml(value) {
             return $('<div>').text(value === null || value === undefined ? '' : value).html();
+        }
+
+        function scrollChatToBottom() {
+            chatWindow.scrollTop(chatWindow[0].scrollHeight);
+        }
+
+        function updateUnreadBadge() {
+            if (unreadChatCount > 0) {
+                chatUnreadBadge.text(unreadChatCount).removeClass('d-none');
+            } else {
+                chatUnreadBadge.addClass('d-none').text('0');
+            }
+        }
+
+        function appendChatMessage(chatMessage, shouldScroll, markUnread) {
+            if (!chatMessage || !chatMessage.id || chatMessageIds.has(chatMessage.id)) {
+                return;
+            }
+
+            chatMessageIds.add(chatMessage.id);
+            if (chatMessage.id > lastChatId) {
+                lastChatId = chatMessage.id;
+            }
+
+            $('#global-chat-empty').remove();
+
+            const timestamp = new Date(chatMessage.timestamp);
+            const formattedTime = timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const messageHtml = `
+                <div class="chat-message py-2 px-2" data-chat-id="${escapeHtml(chatMessage.id)}">
+                    <div class="small text-secondary">${escapeHtml(formattedTime)}</div>
+                    <div><span class="fw-semibold">${escapeHtml(chatMessage.user)}:</span> ${escapeHtml(chatMessage.message)}</div>
+                </div>
+            `;
+
+            chatWindow.append(messageHtml);
+
+            if (markUnread && !globalChatCollapse.hasClass('show')) {
+                unreadChatCount += 1;
+                updateUnreadBadge();
+            }
+
+            if (shouldScroll) {
+                scrollChatToBottom();
+            }
+        }
+
+        function initializeChatState() {
+            chatWindow.find('[data-chat-id]').each(function () {
+                const id = parseInt($(this).attr('data-chat-id'), 10);
+                if (!Number.isNaN(id)) {
+                    chatMessageIds.add(id);
+                    if (id > lastChatId) {
+                        lastChatId = id;
+                    }
+                }
+            });
+            scrollChatToBottom();
+        }
+
+        function pollChatMessages() {
+            $.ajax({
+                url: '{% url "get_messages" %}',
+                method: 'GET',
+                data: { after_id: lastChatId },
+                success: function (response) {
+                    const messages = response.messages || [];
+                    const shouldScroll = messages.length > 0;
+
+                    $.each(messages, function (_, message) {
+                        appendChatMessage(message, false, true);
+                    });
+
+                    if (shouldScroll) {
+                        scrollChatToBottom();
+                    }
+                },
+                error: function () {
+                    chatStatus.text('Chat sync error. Retrying...');
+                }
+            });
         }
 
         function setProfileModalValues(profile) {
@@ -611,6 +747,40 @@
             });
         });
 
+        chatForm.on('submit', function (event) {
+            event.preventDefault();
+
+            const messageText = chatInput.val().trim();
+            if (!messageText) {
+                return;
+            }
+
+            chatSendButton.prop('disabled', true);
+            chatStatus.text('Sending...');
+
+            $.ajax({
+                url: '{% url "send_message" %}',
+                method: 'POST',
+                data: { message: messageText },
+                success: function (response) {
+                    if (response.success) {
+                        appendChatMessage(response.chat_message, true, false);
+                        chatInput.val('');
+                        chatStatus.text('Connected');
+                    } else {
+                        chatStatus.text(response.message || 'Failed to send message.');
+                    }
+                },
+                error: function (xhr) {
+                    const message = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Failed to send message.';
+                    chatStatus.text(message);
+                },
+                complete: function () {
+                    chatSendButton.prop('disabled', false);
+                }
+            });
+        });
+
         leaderboardBody.on('click', '.js-view-profile', function () {
             const profileId = $(this).data('profile-id');
             const profileUrl = profileUrlTemplate.replace('/0/', '/' + profileId + '/');
@@ -638,6 +808,15 @@
 
         leaderboardPollTimer = setInterval(loadLeaderboard, 30000);
         loadLeaderboard();
+        initializeChatState();
+        updateUnreadBadge();
+        chatPollTimer = setInterval(pollChatMessages, 3000);
+
+        globalChatCollapse.on('shown.bs.collapse', function () {
+            unreadChatCount = 0;
+            updateUnreadBadge();
+            scrollChatToBottom();
+        });
 
         leaderboardProfileModalElement.addEventListener('hidden.bs.modal', function () {
             profileError.addClass('d-none').text('');
@@ -646,6 +825,9 @@
         $(window).on('beforeunload', function () {
             if (leaderboardPollTimer) {
                 clearInterval(leaderboardPollTimer);
+            }
+            if (chatPollTimer) {
+                clearInterval(chatPollTimer);
             }
         });
     });

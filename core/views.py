@@ -12,7 +12,7 @@ from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 
 from .forms import CustomUserCreationForm
-from .models import PlayerProfile, Post
+from .models import ChatMessage, PlayerProfile, Post
 from .utils import fetch_coc_player
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,15 @@ def _display_name(user):
 def _player_reputation(user):
 	profile, _ = PlayerProfile.objects.get_or_create(user=user)
 	return profile.reputation
+
+
+def _serialize_chat_message(chat_message):
+	return {
+		'id': chat_message.id,
+		'user': _display_name(chat_message.user),
+		'message': chat_message.message,
+		'timestamp': chat_message.timestamp.isoformat(),
+	}
 
 
 def auth_page(request):
@@ -72,9 +81,14 @@ def dashboard(request):
 			'created_at': post.created_at,
 			'votes': post.votes,
 		})
+	chat_messages = list(
+		ChatMessage.objects.select_related('user').order_by('-timestamp')[:20]
+	)
+	chat_messages.reverse()
 	return render(request, 'core/dashboard.html', {
 		'profile': profile,
 		'community_posts': community_posts,
+		'chat_messages': chat_messages,
 	})
 
 
@@ -251,3 +265,28 @@ def vote_post(request, post_id):
 			'author_profile_id': author_profile.id,
 		'action': action,
 	})
+
+
+@login_required
+@require_POST
+def send_message(request):
+	message = request.POST.get('message', '').strip()
+	if not message:
+		return JsonResponse({'success': False, 'message': 'Message cannot be empty.'}, status=400)
+
+	chat_message = ChatMessage.objects.create(user=request.user, message=message)
+	return JsonResponse({'success': True, 'chat_message': _serialize_chat_message(chat_message)})
+
+
+@login_required
+def get_messages(request):
+	after_id = request.GET.get('after_id', '').strip()
+	chat_qs = ChatMessage.objects.select_related('user')
+
+	if after_id.isdigit():
+		messages = list(chat_qs.filter(id__gt=int(after_id)).order_by('timestamp')[:20])
+	else:
+		messages = list(chat_qs.order_by('-timestamp')[:20])
+		messages.reverse()
+
+	return JsonResponse({'messages': [_serialize_chat_message(message) for message in messages]})
