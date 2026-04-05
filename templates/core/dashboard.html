@@ -32,6 +32,15 @@
         .metric-box {
             min-height: 112px;
         }
+        .reputation-badge {
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            color: #fbbf24;
+        }
+        .community-post {
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(148, 163, 184, 0.16);
+        }
     </style>
 </head>
 <body>
@@ -43,6 +52,7 @@
         </div>
         <div class="d-flex gap-2">
             {% if user.is_authenticated %}
+                <span class="badge reputation-badge align-self-center">⭐ {{ profile.reputation }} Reputation</span>
                 <span class="badge text-bg-secondary align-self-center">Logged in as {{ user.username }}</span>
                 <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#linkGameModal">Link Game Account</button>
                 <button type="button" class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#linkCocModal">Link CoC</button>
@@ -59,7 +69,10 @@
                 <div class="card-body">
                     <div class="mb-4">
                         <div class="stat-label">Player Name</div>
-                        <div class="display-6 stat-value">{{ user.get_full_name|default:user.username }}</div>
+                        <div class="display-6 stat-value">
+                            {{ user.get_full_name|default:user.username }}
+                            <span class="badge reputation-badge align-middle ms-2">⭐ {{ profile.reputation }}</span>
+                        </div>
                     </div>
 
                     <div class="mb-4">
@@ -142,6 +155,55 @@
                     </div>
 
                     <div class="mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h3 class="h5 text-secondary mb-0">Community Strategy Feed</h3>
+                            <small class="text-secondary">Post and vote live</small>
+                        </div>
+                        <div class="card community-post mb-3">
+                            <div class="card-body">
+                                <form id="community-post-form">
+                                    {% csrf_token %}
+                                    <div class="mb-3">
+                                        <label for="communityPostInput" class="form-label text-secondary">Share a strategy, tip, or squad update</label>
+                                        <textarea class="form-control bg-dark text-light border-secondary" id="communityPostInput" name="content" rows="3" maxlength="1000" placeholder="Share your latest tactic..." required></textarea>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div class="text-secondary small" id="community-post-status">Ready to post.</div>
+                                        <button type="submit" class="btn btn-info" id="community-post-submit">Share</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                        <div id="community-feed" class="d-grid gap-3">
+                            {% for post in community_posts %}
+                                <div class="card community-post" data-post-id="{{ post.id }}" data-author-profile-id="{{ post.author_profile_id }}">
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+                                            <div>
+                                                <div class="fw-semibold">
+                                                    {{ post.author_name }}
+                                                    <span class="badge reputation-badge ms-2">⭐ {{ post.author_reputation }}</span>
+                                                </div>
+                                                <div class="text-secondary small">{{ post.created_at|date:'M d, Y H:i' }}</div>
+                                            </div>
+                                            <div class="badge text-bg-dark border border-secondary">Score: <span class="js-post-votes">{{ post.votes }}</span></div>
+                                        </div>
+                                        <p class="mb-3">{{ post.content }}</p>
+                                        <div class="d-flex gap-2">
+                                            <button type="button" class="btn btn-sm btn-outline-success js-vote-post" data-post-id="{{ post.id }}" data-action="upvote">▲ Upvote</button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger js-vote-post" data-post-id="{{ post.id }}" data-action="downvote">▼ Downvote</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% empty %}
+                                <div class="card community-post">
+                                    <div class="card-body text-secondary" id="community-empty-state">No posts yet. Start the discussion.</div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
                         <div class="d-flex justify-content-between mb-2">
                             <span class="stat-label">Win Rate Progress</span>
                             <span class="stat-value" id="win-rate-progress-text">{{ profile.win_rate }}%</span>
@@ -168,6 +230,10 @@
                     <div class="col-6">
                         <div class="stat-label">Player Name</div>
                         <div class="stat-value" id="lb-profile-player-name">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-label">Reputation</div>
+                        <div class="stat-value" id="lb-profile-reputation">-</div>
                     </div>
                     <div class="col-6">
                         <div class="stat-label">Game ID</div>
@@ -383,7 +449,24 @@
         const leaderboardProfileModal = bootstrap.Modal.getOrCreateInstance(leaderboardProfileModalElement);
         const profileError = $('#leaderboard-profile-error');
         const profileUrlTemplate = '{% url "leaderboard_profile_data" 0 %}';
+        const voteUrlTemplate = '{% url "vote_post" 0 %}';
         let leaderboardPollTimer = null;
+        const communityFeed = $('#community-feed');
+        const communityPostForm = $('#community-post-form');
+        const communityPostInput = $('#communityPostInput');
+        const communityStatus = $('#community-post-status');
+
+        function getCsrfToken() {
+            return communityPostForm.find('input[name="csrfmiddlewaretoken"]').val();
+        }
+
+        $.ajaxSetup({
+            beforeSend: function (xhr, settings) {
+                if (settings.type === 'POST') {
+                    xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
+                }
+            }
+        });
 
         function escapeHtml(value) {
             return $('<div>').text(value === null || value === undefined ? '' : value).html();
@@ -391,6 +474,7 @@
 
         function setProfileModalValues(profile) {
             $('#lb-profile-player-name').text(profile.player_name || '-');
+            $('#lb-profile-reputation').text('⭐ ' + (profile.reputation ?? 0));
             $('#lb-profile-game-id').text(profile.game_id || '-');
             $('#lb-profile-current-rank').text(profile.current_rank || '-');
             $('#lb-profile-win-rate').text((profile.win_rate ?? 0) + '%');
@@ -412,7 +496,7 @@
                 const rowHtml = `
                     <tr>
                         <td>#${escapeHtml(player.rank)}</td>
-                        <td>${escapeHtml(player.player_name)}</td>
+                        <td>${escapeHtml(player.player_name)} <span class="badge reputation-badge ms-2">⭐ ${escapeHtml(player.reputation ?? 0)}</span></td>
                         <td>${escapeHtml(player.trophies)}</td>
                         <td>${escapeHtml(player.townhall_level)}</td>
                         <td class="text-end">
@@ -436,6 +520,96 @@
                 }
             });
         }
+
+        function prependCommunityPost(post) {
+            $('#community-empty-state').closest('.card').remove();
+
+            const postHtml = `
+                <div class="card community-post" data-post-id="${escapeHtml(post.id)}" data-author-profile-id="${escapeHtml(post.author_profile_id)}">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+                            <div>
+                                <div class="fw-semibold">
+                                    ${escapeHtml(post.author_name)}
+                                    <span class="badge reputation-badge ms-2">⭐ ${escapeHtml(post.author_reputation ?? 0)}</span>
+                                </div>
+                                <div class="text-secondary small">Just now</div>
+                            </div>
+                            <div class="badge text-bg-dark border border-secondary">Score: <span class="js-post-votes">${escapeHtml(post.votes ?? 0)}</span></div>
+                        </div>
+                        <p class="mb-3">${escapeHtml(post.content)}</p>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-success js-vote-post" data-post-id="${escapeHtml(post.id)}" data-action="upvote">▲ Upvote</button>
+                            <button type="button" class="btn btn-sm btn-outline-danger js-vote-post" data-post-id="${escapeHtml(post.id)}" data-action="downvote">▼ Downvote</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            communityFeed.prepend(postHtml);
+        }
+
+        communityPostForm.on('submit', function (event) {
+            event.preventDefault();
+
+            const content = communityPostInput.val().trim();
+            if (!content) {
+                communityStatus.text('Write something before sharing.');
+                return;
+            }
+
+            communityStatus.text('Sharing...');
+
+            $.ajax({
+                url: '{% url "submit_post" %}',
+                method: 'POST',
+                data: { content: content },
+                success: function (response) {
+                    if (response.success) {
+                        prependCommunityPost(response.post);
+                        communityPostInput.val('');
+                        communityStatus.text('Post shared successfully.');
+                    } else {
+                        communityStatus.text(response.message || 'Unable to share post.');
+                    }
+                },
+                error: function (xhr) {
+                    const message = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Unable to share post.';
+                    communityStatus.text(message);
+                }
+            });
+        });
+
+        communityFeed.on('click', '.js-vote-post', function () {
+            const $button = $(this);
+            const postId = $button.data('post-id');
+            const action = $button.data('action');
+            const $postCard = $button.closest('.community-post');
+            const $votes = $postCard.find('.js-post-votes');
+            const authorProfileId = $postCard.data('author-profile-id');
+            const voteUrl = voteUrlTemplate.replace('/0/', '/' + postId + '/');
+
+            $button.prop('disabled', true);
+
+            $.ajax({
+                url: voteUrl,
+                method: 'POST',
+                data: { action: action },
+                success: function (response) {
+                    if (response.success) {
+                        $votes.text(response.votes);
+                        const reputationValue = response.author_reputation;
+                        if (authorProfileId !== undefined) {
+                            $(`.community-post[data-author-profile-id="${authorProfileId}"] .reputation-badge`).text('⭐ ' + reputationValue);
+                        }
+                        loadLeaderboard();
+                    }
+                },
+                complete: function () {
+                    $button.prop('disabled', false);
+                }
+            });
+        });
 
         leaderboardBody.on('click', '.js-view-profile', function () {
             const profileId = $(this).data('profile-id');

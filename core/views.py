@@ -5,12 +5,14 @@ from django.contrib import messages
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
+from django.db import transaction
+from django.db.models import F
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 
 from .forms import CustomUserCreationForm
-from .models import PlayerProfile
+from .models import PlayerProfile, Post
 from .utils import fetch_coc_player
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,11 @@ logger = logging.getLogger(__name__)
 def _display_name(user):
 	full_name = user.get_full_name().strip()
 	return full_name if full_name else user.username
+
+
+def _player_reputation(user):
+	profile, _ = PlayerProfile.objects.get_or_create(user=user)
+	return profile.reputation
 
 
 def auth_page(request):
@@ -53,7 +60,22 @@ def auth_page(request):
 @login_required
 def dashboard(request):
 	profile, _ = PlayerProfile.objects.get_or_create(user=request.user)
-	return render(request, 'core/dashboard.html', {'profile': profile})
+	community_posts = []
+	for post in Post.objects.select_related('author').order_by('-created_at')[:20]:
+		author_profile, _ = PlayerProfile.objects.get_or_create(user=post.author)
+		community_posts.append({
+			'id': post.id,
+			'author_profile_id': author_profile.id,
+			'author_name': _display_name(post.author),
+			'author_reputation': author_profile.reputation,
+			'content': post.content,
+			'created_at': post.created_at,
+			'votes': post.votes,
+		})
+	return render(request, 'core/dashboard.html', {
+		'profile': profile,
+		'community_posts': community_posts,
+	})
 
 
 @login_required
@@ -69,6 +91,7 @@ def leaderboard_data(request):
 			'rank': index,
 			'profile_id': profile.id,
 			'player_name': _display_name(profile.user),
+			'reputation': profile.reputation,
 			'trophies': profile.trophies,
 			'townhall_level': profile.townhall_level,
 		})
@@ -87,6 +110,7 @@ def leaderboard_profile_data(request, profile_id):
 		'success': True,
 		'profile': {
 			'player_name': _display_name(profile.user),
+			'reputation': profile.reputation,
 			'game_id': profile.game_id,
 			'current_rank': profile.current_rank,
 			'win_rate': profile.win_rate,
@@ -168,4 +192,62 @@ def link_coc_account(request):
 		'trophies': profile.trophies,
 		'townHallLevel': profile.townhall_level,
 		'expLevel': profile.exp_level,
+	})
+
+
+@login_required
+@require_POST
+def submit_post(request):
+	content = request.POST.get('content', '').strip()
+	if not content:
+		return JsonResponse({'success': False, 'message': 'Post content is required.'}, status=400)
+
+	post = Post.objects.create(author=request.user, content=content)
+	author_profile, _ = PlayerProfile.objects.get_or_create(user=request.user)
+	reputation = _player_reputation(request.user)
+
+	return JsonResponse({
+		'success': True,
+		'post': {
+			'id': post.id,
+			'author_name': _display_name(request.user),
+			'author_profile_id': author_profile.id,
+			'author_reputation': reputation,
+			'content': post.content,
+			'created_at': post.created_at.isoformat(),
+			'votes': post.votes,
+		},
+	})
+
+
+@login_required
+@require_POST
+def vote_post(request, post_id):
+	action = request.POST.get('action', '').strip().lower()
+	if action not in {'upvote', 'downvote'}:
+		return JsonResponse({'success': False, 'message': 'Invalid vote action.'}, status=400)
+
+	try:
+		with transaction.atomic():
+			post = Post.objects.select_for_update().select_related('author').get(pk=post_id)
+			author_profile, _ = PlayerProfile.objects.select_for_update().get_or_create(user=post.author)
+
+			vote_delta = 1 if action == 'upvote' else -1
+			reputation_delta = 1 if action == 'upvote' else -1
+
+			Post.objects.filter(pk=post.pk).update(votes=F('votes') + vote_delta)
+			PlayerProfile.objects.filter(pk=author_profile.pk).update(reputation=F('reputation') + reputation_delta)
+
+			post.refresh_from_db(fields=['votes'])
+			author_profile.refresh_from_db(fields=['reputation'])
+	except Post.DoesNotExist:
+		return JsonResponse({'success': False, 'message': 'Post not found.'}, status=404)
+
+	return JsonResponse({
+		'success': True,
+		'post_id': post.id,
+		'votes': post.votes,
+		'author_reputation': author_profile.reputation,
+			'author_profile_id': author_profile.id,
+		'action': action,
 	})
