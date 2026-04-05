@@ -11,6 +11,10 @@ class PlayerProfile(models.Model):
     game_id = models.CharField(max_length=100)
     current_rank = models.CharField(max_length=50, default='Unranked')
     win_rate = models.FloatField(default=0.0)
+    player_tag = models.CharField(max_length=30, blank=True)
+    trophies = models.IntegerField(default=0)
+    townhall_level = models.IntegerField(default=0)
+    exp_level = models.IntegerField(default=0)
 
     def __str__(self):
         return f"{self.user.username} - {self.game_id}"

@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MetaSync Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        body {
+            background: radial-gradient(circle at top, #1b2a41 0%, #0b1020 45%, #050814 100%);
+            min-height: 100vh;
+            color: #e8eefc;
+        }
+        .dashboard-card {
+            background: rgba(15, 23, 42, 0.92);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+            backdrop-filter: blur(8px);
+        }
+        .stat-label {
+            color: #94a3b8;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .stat-value {
+            color: #f8fafc;
+            font-weight: 700;
+        }
+        .metric-box {
+            min-height: 112px;
+        }
+    </style>
+</head>
+<body>
+<div class="container py-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="fw-bold mb-1">MetaSync</h1>
+            <p class="text-secondary mb-0">Player analytics dashboard</p>
+        </div>
+        <div class="d-flex gap-2">
+            {% if user.is_authenticated %}
+                <span class="badge text-bg-secondary align-self-center">Logged in as {{ user.username }}</span>
+                <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#linkGameModal">Link Game Account</button>
+                <button type="button" class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#linkCocModal">Link CoC</button>
+                <a class="btn btn-outline-light" href="{% url 'logout' %}">Logout</a>
+            {% else %}
+                <a class="btn btn-primary" href="{% url 'login' %}">Login</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-12 col-lg-8 mx-auto">
+            <div class="card dashboard-card rounded-4 p-4">
+                <div class="card-body">
+                    <div class="mb-4">
+                        <div class="stat-label">Player Name</div>
+                        <div class="display-6 stat-value">{{ user.get_full_name|default:user.username }}</div>
+                    </div>
+
+                    <div class="mb-4">
+                        <h3 class="h5 text-secondary mb-3">Generic Game Profile</h3>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <div class="p-3 rounded-3 bg-dark bg-opacity-50 h-100 metric-box">
+                                    <div class="stat-label">Game ID</div>
+                                    <div class="stat-value fs-5" id="game-id-value">{{ profile.game_id|default:'Not set' }}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="p-3 rounded-3 bg-dark bg-opacity-50 h-100 metric-box">
+                                    <div class="stat-label">Current Rank</div>
+                                    <div class="stat-value fs-5" id="rank-value">{{ profile.current_rank }}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="p-3 rounded-3 bg-dark bg-opacity-50 h-100 metric-box">
+                                    <div class="stat-label">Win Rate</div>
+                                    <div class="stat-value fs-5" id="win-rate-value">{{ profile.win_rate }}%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <h3 class="h5 text-secondary mb-3">Clash of Clans Profile</h3>
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <div class="p-3 rounded-3 bg-dark bg-opacity-50 h-100 metric-box">
+                                    <div class="stat-label">Player Tag</div>
+                                    <div class="stat-value fs-5" id="coc-player-tag">{{ profile.player_tag|default:'Not linked' }}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="p-3 rounded-3 bg-dark bg-opacity-50 h-100 metric-box">
+                                    <div class="stat-label">Trophies</div>
+                                    <div class="stat-value fs-5" id="coc-trophies">{{ profile.trophies }}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="p-3 rounded-3 bg-dark bg-opacity-50 h-100 metric-box">
+                                    <div class="stat-label">Town Hall</div>
+                                    <div class="stat-value fs-5" id="coc-townhall">{{ profile.townhall_level }}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="p-3 rounded-3 bg-dark bg-opacity-50 h-100 metric-box">
+                                    <div class="stat-label">Exp Level</div>
+                                    <div class="stat-value fs-5" id="coc-exp-level">{{ profile.exp_level }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h3 class="h5 text-secondary mb-0">Global Leaderboard</h3>
+                            <small class="text-secondary">Auto-refresh every 30s</small>
+                        </div>
+                        <div class="table-responsive rounded-3 border border-secondary-subtle">
+                            <table class="table table-dark table-hover align-middle mb-0" id="leaderboard-table">
+                                <thead>
+                                <tr>
+                                    <th scope="col">Rank</th>
+                                    <th scope="col">Player Name</th>
+                                    <th scope="col">Trophies</th>
+                                    <th scope="col">Town Hall</th>
+                                    <th scope="col" class="text-end">Action</th>
+                                </tr>
+                                </thead>
+                                <tbody id="leaderboard-body">
+                                <tr>
+                                    <td colspan="5" class="text-center text-secondary py-4">Loading leaderboard...</td>
+                                </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="stat-label">Win Rate Progress</span>
+                            <span class="stat-value" id="win-rate-progress-text">{{ profile.win_rate }}%</span>
+                        </div>
+                        <div class="progress bg-dark" style="height: 18px;">
+                            <div class="progress-bar bg-success" id="win-rate-progress-bar" role="progressbar" style="width: {{ profile.win_rate }}%;" aria-valuenow="{{ profile.win_rate }}" aria-valuemin="0" aria-valuemax="100"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="leaderboardProfileModal" tabindex="-1" aria-labelledby="leaderboardProfileModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-light border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="leaderboardProfileModalLabel">Player Profile</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-6">
+                        <div class="stat-label">Player Name</div>
+                        <div class="stat-value" id="lb-profile-player-name">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-label">Game ID</div>
+                        <div class="stat-value" id="lb-profile-game-id">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-label">Current Rank</div>
+                        <div class="stat-value" id="lb-profile-current-rank">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-label">Win Rate</div>
+                        <div class="stat-value" id="lb-profile-win-rate">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-label">CoC Tag</div>
+                        <div class="stat-value" id="lb-profile-player-tag">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-label">Trophies</div>
+                        <div class="stat-value" id="lb-profile-trophies">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-label">Town Hall</div>
+                        <div class="stat-value" id="lb-profile-townhall">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-label">Exp Level</div>
+                        <div class="stat-value" id="lb-profile-exp-level">-</div>
+                    </div>
+                </div>
+                <div class="alert alert-danger d-none mt-3" id="leaderboard-profile-error"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="linkGameModal" tabindex="-1" aria-labelledby="linkGameModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-light border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="linkGameModalLabel">Link Game Account</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="link-game-form">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="gameIdInput" class="form-label">Game ID</label>
+                        <input type="text" class="form-control" id="gameIdInput" name="game_id" placeholder="Enter your game ID" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="platformInput" class="form-label">Platform</label>
+                        <select class="form-select" id="platformInput" name="platform" required>
+                            <option value="" selected disabled>Select platform</option>
+                            <option value="PC">PC</option>
+                            <option value="PlayStation">PlayStation</option>
+                            <option value="Xbox">Xbox</option>
+                            <option value="Mobile">Mobile</option>
+                        </select>
+                    </div>
+                    <div class="alert alert-danger d-none" id="link-game-error"></div>
+                    <div class="d-flex align-items-center gap-2 d-none" id="link-game-loading">
+                        <div class="spinner-border spinner-border-sm text-info" role="status" aria-hidden="true"></div>
+                        <span>Linking account...</span>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success" id="link-game-submit">Link Account</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    $(function () {
+        const modalElement = document.getElementById('linkGameModal');
+        const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
+
+        $('#link-game-form').on('submit', function (event) {
+            event.preventDefault();
+
+            const $form = $(this);
+            const $submit = $('#link-game-submit');
+            const $loading = $('#link-game-loading');
+            const $error = $('#link-game-error');
+
+            $error.addClass('d-none').text('');
+            $submit.prop('disabled', true);
+            $loading.removeClass('d-none');
+
+            $.ajax({
+                url: '{% url "update_game_profile" %}',
+                method: 'POST',
+                data: $form.serialize(),
+                success: function (response) {
+                    $('#game-id-value').text(response.game_id);
+                    $('#rank-value').text(response.current_rank);
+                    $('#win-rate-value').text(response.win_rate + '%');
+                    $('#win-rate-progress-text').text(response.win_rate + '%');
+                    $('#win-rate-progress-bar')
+                        .css('width', response.win_rate + '%')
+                        .attr('aria-valuenow', response.win_rate);
+
+                    modal.hide();
+                    $form[0].reset();
+                },
+                error: function (xhr) {
+                    const message = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Unable to link game account.';
+                    $error.removeClass('d-none').text(message);
+                },
+                complete: function () {
+                    $submit.prop('disabled', false);
+                    $loading.addClass('d-none');
+                }
+            });
+        });
+
+        modalElement.addEventListener('hidden.bs.modal', function () {
+            $('#link-game-error').addClass('d-none').text('');
+            $('#link-game-form')[0].reset();
+            $('#link-game-submit').prop('disabled', false);
+            $('#link-game-loading').addClass('d-none');
+        });
+    });
+</script>
+
+<div class="modal fade" id="linkCocModal" tabindex="-1" aria-labelledby="linkCocModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-light border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="linkCocModalLabel">Link Clash of Clans Account</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="link-coc-form">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="playerTagInput" class="form-label">Player Tag</label>
+                        <input type="text" class="form-control" id="playerTagInput" name="player_tag" placeholder="Enter player tag (e.g., #2PP or 2PP)" required>
+                        <small class="text-muted">Your Clash of Clans player tag from your profile.</small>
+                    </div>
+                    <div class="alert alert-danger d-none" id="link-coc-error"></div>
+                    <div class="d-flex align-items-center gap-2 d-none" id="link-coc-loading">
+                        <div class="spinner-border spinner-border-sm text-info" role="status" aria-hidden="true"></div>
+                        <span>Fetching player data...</span>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning" id="link-coc-submit">Link Account</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    $(function () {
+        const cocModalElement = document.getElementById('linkCocModal');
+        const cocModal = bootstrap.Modal.getOrCreateInstance(cocModalElement);
+
+        $('#link-coc-form').on('submit', function (event) {
+            event.preventDefault();
+
+            const $form = $(this);
+            const $submit = $('#link-coc-submit');
+            const $loading = $('#link-coc-loading');
+            const $error = $('#link-coc-error');
+
+            $error.addClass('d-none').text('');
+            $submit.prop('disabled', true);
+            $loading.removeClass('d-none');
+
+            $.ajax({
+                url: '{% url "link_coc_account" %}',
+                method: 'POST',
+                data: $form.serialize(),
+                success: function (response) {
+                    $('#coc-player-tag').text(response.player_tag);
+                    $('#coc-trophies').text(response.trophies);
+                    $('#coc-townhall').text(response.townHallLevel);
+                    $('#coc-exp-level').text(response.expLevel);
+
+                    cocModal.hide();
+                    $form[0].reset();
+                },
+                error: function (xhr) {
+                    const message = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Unable to link CoC account.';
+                    $error.removeClass('d-none').text(message);
+                },
+                complete: function () {
+                    $submit.prop('disabled', false);
+                    $loading.addClass('d-none');
+                }
+            });
+        });
+
+        cocModalElement.addEventListener('hidden.bs.modal', function () {
+            $('#link-coc-error').addClass('d-none').text('');
+            $('#link-coc-form')[0].reset();
+            $('#link-coc-submit').prop('disabled', false);
+            $('#link-coc-loading').addClass('d-none');
+        });
+    });
+</script>
+
+<script>
+    $(function () {
+        const leaderboardBody = $('#leaderboard-body');
+        const leaderboardProfileModalElement = document.getElementById('leaderboardProfileModal');
+        const leaderboardProfileModal = bootstrap.Modal.getOrCreateInstance(leaderboardProfileModalElement);
+        const profileError = $('#leaderboard-profile-error');
+        const profileUrlTemplate = '{% url "leaderboard_profile_data" 0 %}';
+        let leaderboardPollTimer = null;
+
+        function escapeHtml(value) {
+            return $('<div>').text(value === null || value === undefined ? '' : value).html();
+        }
+
+        function setProfileModalValues(profile) {
+            $('#lb-profile-player-name').text(profile.player_name || '-');
+            $('#lb-profile-game-id').text(profile.game_id || '-');
+            $('#lb-profile-current-rank').text(profile.current_rank || '-');
+            $('#lb-profile-win-rate').text((profile.win_rate ?? 0) + '%');
+            $('#lb-profile-player-tag').text(profile.player_tag || '-');
+            $('#lb-profile-trophies').text(profile.trophies ?? 0);
+            $('#lb-profile-townhall').text(profile.townhall_level ?? 0);
+            $('#lb-profile-exp-level').text(profile.exp_level ?? 0);
+        }
+
+        function renderLeaderboardRows(players) {
+            leaderboardBody.empty();
+
+            if (!players || players.length === 0) {
+                leaderboardBody.append('<tr><td colspan="5" class="text-center text-secondary py-4">No players found.</td></tr>');
+                return;
+            }
+
+            $.each(players, function (_, player) {
+                const rowHtml = `
+                    <tr>
+                        <td>#${escapeHtml(player.rank)}</td>
+                        <td>${escapeHtml(player.player_name)}</td>
+                        <td>${escapeHtml(player.trophies)}</td>
+                        <td>${escapeHtml(player.townhall_level)}</td>
+                        <td class="text-end">
+                            <button type="button" class="btn btn-sm btn-outline-info js-view-profile" data-profile-id="${escapeHtml(player.profile_id)}">View Profile</button>
+                        </td>
+                    </tr>
+                `;
+                leaderboardBody.append(rowHtml);
+            });
+        }
+
+        function loadLeaderboard() {
+            $.ajax({
+                url: '{% url "leaderboard_data" %}',
+                method: 'GET',
+                success: function (response) {
+                    renderLeaderboardRows(response.players || []);
+                },
+                error: function () {
+                    leaderboardBody.html('<tr><td colspan="5" class="text-center text-danger py-4">Unable to load leaderboard.</td></tr>');
+                }
+            });
+        }
+
+        leaderboardBody.on('click', '.js-view-profile', function () {
+            const profileId = $(this).data('profile-id');
+            const profileUrl = profileUrlTemplate.replace('/0/', '/' + profileId + '/');
+            profileError.addClass('d-none').text('');
+
+            $.ajax({
+                url: profileUrl,
+                method: 'GET',
+                success: function (response) {
+                    if (!response.success) {
+                        profileError.removeClass('d-none').text(response.message || 'Could not load profile.');
+                        return;
+                    }
+
+                    setProfileModalValues(response.profile || {});
+                    leaderboardProfileModal.show();
+                },
+                error: function (xhr) {
+                    const message = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Could not load profile.';
+                    profileError.removeClass('d-none').text(message);
+                    leaderboardProfileModal.show();
+                }
+            });
+        });
+
+        leaderboardPollTimer = setInterval(loadLeaderboard, 30000);
+        loadLeaderboard();
+
+        leaderboardProfileModalElement.addEventListener('hidden.bs.modal', function () {
+            profileError.addClass('d-none').text('');
+        });
+
+        $(window).on('beforeunload', function () {
+            if (leaderboardPollTimer) {
+                clearInterval(leaderboardPollTimer);
+            }
+        });
+    });
+</script>
+</body>
+</html>
