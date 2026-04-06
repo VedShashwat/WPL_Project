@@ -4,7 +4,9 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    path('', views.dashboard, name='dashboard'),
+    path('', views.community_home, name='community_home'),
+    path('room/<str:game_name>/', views.game_room, name='game_room'),
+    path('dashboard/', views.dashboard, name='dashboard'),
     path('link-coc-account/', views.link_coc_account, name='link_coc_account'),
     path('link-cr-account/', views.link_cr_account, name='link_cr_account'),
     path('leaderboard-data/', views.leaderboard_data, name='leaderboard_data'),

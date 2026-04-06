@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ game_label }} War Room | MetaSync</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        :root {
+            --forum-bg: #dfe3e8;
+            --forum-surface: #f3f6f8;
+            --forum-panel: #ffffff;
+            --forum-border: #b2bcc6;
+            --forum-border-strong: #7f8d9b;
+            --forum-text: #232323;
+            --forum-text-muted: #666666;
+            --forum-accent: #2f4e67;
+            --forum-accent-soft: #e4edf5;
+        }
+        body {
+            min-height: 100vh;
+            color: var(--forum-text);
+            font-family: Tahoma, Verdana, "Trebuchet MS", sans-serif;
+            background-color: var(--forum-bg);
+            background-image:
+                linear-gradient(to right, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+        .section-panel {
+            background: var(--forum-panel);
+            border: 1px solid var(--forum-border-strong);
+            box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.18);
+        }
+        .reputation-badge {
+            background: var(--forum-accent-soft);
+            border: 1px solid #8ea5b8;
+            color: #1f4058;
+            font-weight: 700;
+        }
+        .feed-post {
+            border: 1px solid var(--forum-border);
+            background: #fcfcfc;
+        }
+        .leaderboard-table > :not(caption) > * > * {
+            background: #fcfcfc;
+            border-bottom: 1px solid #d5d5d5;
+        }
+        .leaderboard-table thead th {
+            background: var(--forum-accent-soft);
+            color: #2f4e67;
+            text-transform: uppercase;
+            font-size: 0.78rem;
+            letter-spacing: 0.04em;
+        }
+        .form-control,
+        .btn,
+        .badge,
+        .card,
+        .modal-content,
+        .form-select,
+        .table {
+            border-radius: 0 !important;
+        }
+    </style>
+</head>
+<body>
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h1 class="h3 mb-1">{{ game_label }} War Room</h1>
+            <p class="text-secondary mb-0">Anyone can join this room. Link your tag to appear with full game stats.</p>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+            <span class="badge reputation-badge">Rep {{ profile.reputation }}</span>
+            <span class="badge text-bg-secondary">{{ user.username }}</span>
+            <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#linkAccountModal">
+                {% if is_linked %}Change player tag{% else %}Link your account{% endif %}
+            </button>
+            <a class="btn btn-outline-secondary" href="{% url 'community_home' %}">Community Home</a>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-12 col-lg-4">
+            <div class="card section-panel h-100">
+                <div class="card-body p-3">
+                    <h2 class="h5 mb-3">{{ game_label }} Leaderboard</h2>
+                    <div class="small text-secondary mb-2">
+                        {% if selected_game == 'coc' %}
+                            Ranked by trophies, then Town Hall.
+                        {% else %}
+                            Ranked by trophies, then best trophies.
+                        {% endif %}
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table leaderboard-table table-sm align-middle mb-0">
+                            <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Player</th>
+                                <th>{% if selected_game == 'coc' %}Trophies{% else %}Trophies{% endif %}</th>
+                                <th>{% if selected_game == 'coc' %}Town Hall{% else %}Best{% endif %}</th>
+                            </tr>
+                            </thead>
+                            <tbody id="room-leaderboard-body">
+                            {% for row in leaderboard %}
+                                <tr>
+                                    <td>{{ row.rank }}</td>
+                                    <td>{{ row.player_name }}</td>
+                                    <td>{{ row.main_score }}</td>
+                                    <td>{{ row.secondary_score }}</td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="4" class="text-secondary text-center">No players yet.</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-lg-8">
+            <div class="card section-panel h-100">
+                <div class="card-body p-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h2 class="h5 mb-0">{{ game_label }} Strategy Feed</h2>
+                        <small class="text-secondary">Newest first</small>
+                    </div>
+
+                    <form id="room-post-form" class="mb-3">
+                        {% csrf_token %}
+                        <input type="hidden" name="game_name" value="{{ selected_game }}">
+                        <div class="mb-2">
+                            <textarea class="form-control" id="roomPostInput" name="content" rows="3" maxlength="1000" placeholder="Share a strategy for {{ game_label }}..." required></textarea>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="text-secondary small" id="room-post-status">Ready to post.</div>
+                            <button type="submit" class="btn btn-secondary" id="room-post-submit">Share</button>
+                        </div>
+                    </form>
+
+                    <div id="room-feed" class="d-grid gap-3">
+                        {% for post in room_posts %}
+                            <div class="feed-post p-3" data-post-id="{{ post.id }}" data-author-profile-id="{{ post.author_profile_id }}">
+                                <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+                                    <div>
+                                        <div class="fw-semibold">
+                                            {{ post.author_name }}
+                                            <span class="badge reputation-badge ms-2">Rep {{ post.author_reputation }}</span>
+                                        </div>
+                                        <div class="text-secondary small">{{ post.created_at|date:'M d, Y H:i' }}</div>
+                                    </div>
+                                    <div class="badge text-bg-dark border border-secondary">Score: <span class="js-post-votes">{{ post.votes }}</span></div>
+                                </div>
+                                <p class="mb-3">{{ post.content }}</p>
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary js-like-post" data-post-id="{{ post.id }}">Like</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary js-comment-post" data-post-id="{{ post.id }}" data-author="{{ post.author_name|escape }}">Comment</button>
+                                </div>
+                            </div>
+                        {% empty %}
+                            <div class="feed-post p-3 text-secondary" id="room-empty-state">No posts yet in this war room.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="linkAccountModal" tabindex="-1" aria-labelledby="linkAccountModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="linkAccountModalLabel">
+                    {% if is_linked %}Change{% else %}Link{% endif %} {{ game_label }} Player Tag
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="link-account-form">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="roomPlayerTagInput" class="form-label">Player Tag</label>
+                        <input type="text" class="form-control" id="roomPlayerTagInput" name="player_tag" value="{{ current_tag|default:'' }}" placeholder="Enter player tag (e.g., #2PP or 2PP)" required>
+                    </div>
+                    <div class="alert alert-danger d-none" id="link-account-error"></div>
+                    <div class="d-flex align-items-center gap-2 d-none" id="link-account-loading">
+                        <div class="spinner-border spinner-border-sm text-info" role="status" aria-hidden="true"></div>
+                        <span>Fetching player data...</span>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-secondary" id="link-account-submit">
+                        {% if is_linked %}Update Tag{% else %}Link Account{% endif %}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    $(function () {
+        const roomFeed = $('#room-feed');
+        const roomPostForm = $('#room-post-form');
+        const roomPostInput = $('#roomPostInput');
+        const roomPostStatus = $('#room-post-status');
+        const voteUrlTemplate = '{% url "vote_post" 0 %}';
+        const linkEndpointUrl = '{% url link_endpoint %}';
+
+        function getCsrfToken() {
+            return roomPostForm.find('input[name="csrfmiddlewaretoken"]').val();
+        }
+
+        $.ajaxSetup({
+            beforeSend: function (xhr, settings) {
+                if (settings.type === 'POST') {
+                    xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
+                }
+            }
+        });
+
+        function escapeHtml(value) {
+            return $('<div>').text(value === null || value === undefined ? '' : value).html();
+        }
+
+        function prependRoomPost(post) {
+            $('#room-empty-state').remove();
+            const postHtml = `
+                <div class="feed-post p-3" data-post-id="${escapeHtml(post.id)}" data-author-profile-id="${escapeHtml(post.author_profile_id)}">
+                    <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+                        <div>
+                            <div class="fw-semibold">
+                                ${escapeHtml(post.author_name)}
+                                <span class="badge reputation-badge ms-2">Rep ${escapeHtml(post.author_reputation ?? 0)}</span>
+                            </div>
+                            <div class="text-secondary small">Just now</div>
+                        </div>
+                        <div class="badge text-bg-dark border border-secondary">Score: <span class="js-post-votes">${escapeHtml(post.votes ?? 0)}</span></div>
+                    </div>
+                    <p class="mb-3">${escapeHtml(post.content)}</p>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary js-like-post" data-post-id="${escapeHtml(post.id)}">Like</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary js-comment-post" data-post-id="${escapeHtml(post.id)}" data-author="${escapeHtml(post.author_name)}">Comment</button>
+                    </div>
+                </div>
+            `;
+            roomFeed.prepend(postHtml);
+        }
+
+        roomPostForm.on('submit', function (event) {
+            event.preventDefault();
+            const content = roomPostInput.val().trim();
+            const gameName = roomPostForm.find('input[name="game_name"]').val();
+            if (!content) {
+                roomPostStatus.text('Write something before sharing.');
+                return;
+            }
+
+            roomPostStatus.text('Sharing...');
+            $.ajax({
+                url: '{% url "submit_post" %}',
+                method: 'POST',
+                data: { content: content, game_name: gameName },
+                success: function (response) {
+                    if (response.success) {
+                        prependRoomPost(response.post);
+                        roomPostInput.val('');
+                        roomPostStatus.text('Post shared successfully.');
+                    } else {
+                        roomPostStatus.text(response.message || 'Unable to share post.');
+                    }
+                },
+                error: function (xhr) {
+                    const message = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Unable to share post.';
+                    roomPostStatus.text(message);
+                }
+            });
+        });
+
+        roomFeed.on('click', '.js-like-post', function () {
+            const $button = $(this);
+            const postId = $button.data('post-id');
+            const voteUrl = voteUrlTemplate.replace('/0/', '/' + postId + '/');
+            const $postCard = $button.closest('.feed-post');
+            const $votes = $postCard.find('.js-post-votes');
+            const authorProfileId = $postCard.data('author-profile-id');
+
+            $button.prop('disabled', true);
+            $.ajax({
+                url: voteUrl,
+                method: 'POST',
+                data: { action: 'upvote' },
+                success: function (response) {
+                    if (response.success) {
+                        $votes.text(response.votes);
+                        if (authorProfileId !== undefined) {
+                            $(`.feed-post[data-author-profile-id="${authorProfileId}"] .reputation-badge`).text('Rep ' + response.author_reputation);
+                        }
+                    }
+                },
+                complete: function () {
+                    $button.prop('disabled', false);
+                }
+            });
+        });
+
+        roomFeed.on('click', '.js-comment-post', function () {
+            const author = $(this).data('author') || 'Player';
+            roomPostInput.val(`@${author} `).trigger('focus');
+            roomPostStatus.text('Replying to ' + author + '...');
+            window.scrollTo({ top: roomPostInput.offset().top - 120, behavior: 'smooth' });
+        });
+
+        const linkModalElement = document.getElementById('linkAccountModal');
+        const linkModal = bootstrap.Modal.getOrCreateInstance(linkModalElement);
+        $('#link-account-form').on('submit', function (event) {
+            event.preventDefault();
+
+            const $form = $(this);
+            const $submit = $('#link-account-submit');
+            const $loading = $('#link-account-loading');
+            const $error = $('#link-account-error');
+
+            $error.addClass('d-none').text('');
+            $submit.prop('disabled', true);
+            $loading.removeClass('d-none');
+
+            $.ajax({
+                url: linkEndpointUrl,
+                method: 'POST',
+                data: $form.serialize(),
+                success: function () {
+                    linkModal.hide();
+                    window.location.reload();
+                },
+                error: function (xhr) {
+                    const message = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Unable to update player tag.';
+                    $error.removeClass('d-none').text(message);
+                },
+                complete: function () {
+                    $submit.prop('disabled', false);
+                    $loading.addClass('d-none');
+                }
+            });
+        });
+    });
+</script>
+</body>
+</html>

@@ -17,6 +17,17 @@ from .utils import fetch_coc_player, fetch_cr_player
 
 logger = logging.getLogger(__name__)
 
+GAME_CONFIG = {
+	'coc': {
+		'label': 'Clash of Clans',
+		'post_prefix': '[COC]',
+	},
+	'cr': {
+		'label': 'Clash Royale',
+		'post_prefix': '[CR]',
+	},
+}
+
 
 def _display_name(user):
 	full_name = user.get_full_name().strip()
@@ -37,9 +48,17 @@ def _serialize_chat_message(chat_message):
 	}
 
 
+def _strip_game_prefix(content):
+	for game in GAME_CONFIG.values():
+		prefix = f"{game['post_prefix']} "
+		if content.startswith(prefix):
+			return content[len(prefix):]
+	return content
+
+
 def auth_page(request):
 	if request.user.is_authenticated:
-		return redirect('dashboard')
+		return redirect('community_home')
 
 	login_form = AuthenticationForm(request, data=request.POST or None)
 	signup_form = CustomUserCreationForm(request.POST or None)
@@ -51,7 +70,7 @@ def auth_page(request):
 
 		if form_type == 'login' and login_form.is_valid():
 			auth_login(request, login_form.get_user())
-			return redirect('dashboard')
+			return redirect('community_home')
 
 		if form_type == 'signup' and signup_form.is_valid():
 			user = signup_form.save()
@@ -73,12 +92,103 @@ def auth_page(request):
 					logger.warning(f'Welcome email failed for user {user.username}: {exc}')
 			auth_login(request, user)
 			messages.success(request, 'Account created successfully.')
-			return redirect('dashboard')
+			return redirect('community_home')
 
 	return render(request, 'registration/login.html', {
 		'login_form': login_form,
 		'signup_form': signup_form,
 		'active_panel': active_panel,
+	})
+
+
+@login_required
+def community_home(request):
+	profile, _ = PlayerProfile.objects.get_or_create(user=request.user)
+	global_posts = []
+	for post in Post.objects.select_related('author').order_by('-created_at')[:50]:
+		author_profile, _ = PlayerProfile.objects.get_or_create(user=post.author)
+		global_posts.append({
+			'id': post.id,
+			'author_profile_id': author_profile.id,
+			'author_name': _display_name(post.author),
+			'author_reputation': author_profile.reputation,
+			'content': _strip_game_prefix(post.content),
+			'created_at': post.created_at,
+			'votes': post.votes,
+		})
+
+	return render(request, 'core/community_home.html', {
+		'profile': profile,
+		'global_posts': global_posts,
+	})
+
+
+@login_required
+def game_room(request, game_name):
+	selected_game = (game_name or '').lower().strip()
+	if selected_game not in GAME_CONFIG:
+		return redirect('community_home')
+
+	profile, _ = PlayerProfile.objects.get_or_create(user=request.user)
+	game_info = GAME_CONFIG[selected_game]
+	post_prefix = game_info['post_prefix']
+
+	if selected_game == 'coc':
+		leaderboard_qs = (
+			PlayerProfile.objects.select_related('user')
+			.order_by('-trophies', '-townhall_level', 'user__username')
+		)
+		is_linked = bool(profile.player_tag)
+		current_tag = profile.player_tag
+		link_endpoint = 'link_coc_account'
+	else:
+		leaderboard_qs = (
+			PlayerProfile.objects.select_related('user')
+			.order_by('-cr_trophies', '-cr_best_trophies', 'user__username')
+		)
+		is_linked = bool(profile.cr_player_tag)
+		current_tag = profile.cr_player_tag
+		link_endpoint = 'link_cr_account'
+
+	leaderboard = []
+	for rank, row in enumerate(leaderboard_qs[:50], start=1):
+		if selected_game == 'coc':
+			main_score = row.trophies
+			secondary_score = row.townhall_level
+		else:
+			main_score = row.cr_trophies
+			secondary_score = row.cr_best_trophies
+
+		leaderboard.append({
+			'rank': rank,
+			'player_name': _display_name(row.user),
+			'reputation': row.reputation,
+			'main_score': main_score,
+			'secondary_score': secondary_score,
+		})
+
+	room_posts = []
+	for post in Post.objects.select_related('author').filter(content__startswith=f'{post_prefix} ').order_by('-created_at')[:50]:
+		author_profile, _ = PlayerProfile.objects.get_or_create(user=post.author)
+		room_posts.append({
+			'id': post.id,
+			'author_profile_id': author_profile.id,
+			'author_name': _display_name(post.author),
+			'author_reputation': author_profile.reputation,
+			'content': _strip_game_prefix(post.content),
+			'created_at': post.created_at,
+			'votes': post.votes,
+		})
+
+	return render(request, 'core/game_room.html', {
+		'profile': profile,
+		'selected_game': selected_game,
+		'game_label': game_info['label'],
+		'leaderboard': leaderboard,
+		'room_posts': room_posts,
+		'is_linked': is_linked,
+		'current_tag': current_tag,
+		'link_endpoint': link_endpoint,
 	})
 
 
@@ -247,7 +357,13 @@ def submit_post(request):
 	if not content:
 		return JsonResponse({'success': False, 'message': 'Post content is required.'}, status=400)
 
-	post = Post.objects.create(author=request.user, content=content)
+	game_name = request.POST.get('game_name', '').strip().lower()
+	if game_name in GAME_CONFIG:
+		stored_content = f"{GAME_CONFIG[game_name]['post_prefix']} {content}"
+	else:
+		stored_content = content
+
+	post = Post.objects.create(author=request.user, content=stored_content)
 	author_profile, _ = PlayerProfile.objects.get_or_create(user=request.user)
 	reputation = _player_reputation(request.user)
 
@@ -258,7 +374,8 @@ def submit_post(request):
 			'author_name': _display_name(request.user),
 			'author_profile_id': author_profile.id,
 			'author_reputation': reputation,
-			'content': post.content,
+			'content': content,
+			'game_name': game_name if game_name in GAME_CONFIG else '',
 			'created_at': post.created_at.isoformat(),
 			'votes': post.votes,
 		},
