@@ -120,6 +120,9 @@
                                 <label class="form-label" for="login_password">Password</label>
                                 <input type="password" class="form-control" name="password" id="login_password" required>
                             </div>
+                            <div class="text-end mb-3">
+                                <a class="auth-link" href="{% url 'password_reset' %}">Forgot password?</a>
+                            </div>
                             <button type="submit" class="btn btn-primary w-100">Login</button>
                         </form>
 
@@ -149,6 +152,10 @@
                             <div class="mb-3">
                                 <label class="form-label" for="signup_username">Username</label>
                                 <input type="text" class="form-control" name="username" id="signup_username" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="signup_email">Email (optional)</label>
+                                <input type="email" class="form-control" name="email" id="signup_email" placeholder="Link email for password recovery">
                             </div>
                             <div class="mb-3">
                                 <label class="form-label" for="signup_password1">Password</label>

@@ -16,6 +16,9 @@ class PlayerProfile(models.Model):
     trophies = models.IntegerField(default=0)
     townhall_level = models.IntegerField(default=0)
     exp_level = models.IntegerField(default=0)
+    cr_player_tag = models.CharField(max_length=30, blank=True)
+    cr_trophies = models.IntegerField(default=0)
+    cr_best_trophies = models.IntegerField(default=0)
 
     def __str__(self):
         return f"{self.user.username} - {self.game_id}"

@@ -5,6 +5,7 @@ from django.contrib import messages
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
+from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import F
 from django.http import JsonResponse
@@ -13,7 +14,7 @@ from django.views.decorators.http import require_POST
 
 from .forms import CustomUserCreationForm
 from .models import ChatMessage, PlayerProfile, Post
-from .utils import fetch_coc_player
+from .utils import fetch_coc_player, fetch_cr_player
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,22 @@ def auth_page(request):
 
 		if form_type == 'signup' and signup_form.is_valid():
 			user = signup_form.save()
+			if user.email:
+				try:
+					send_mail(
+						subject='Welcome to MetaSync',
+						message=(
+							f'Hi {user.username},\n\n'
+							'Thanks for joining MetaSync. Your account is ready, and you can now explore '
+							'the dashboard, leaderboard, community feed, and global chat.\n\n'
+							'Good luck and have fun!\n'
+						),
+						from_email=None,
+						recipient_list=[user.email],
+						fail_silently=False,
+					)
+				except Exception as exc:
+					logger.warning(f'Welcome email failed for user {user.username}: {exc}')
 			auth_login(request, user)
 			messages.success(request, 'Account created successfully.')
 			return redirect('dashboard')
@@ -206,6 +223,49 @@ def link_coc_account(request):
 		'trophies': profile.trophies,
 		'townHallLevel': profile.townhall_level,
 		'expLevel': profile.exp_level,
+	})
+
+
+@login_required
+@require_POST
+def link_cr_account(request):
+	player_tag = request.POST.get('player_tag', '').strip()
+	if not player_tag:
+		return JsonResponse({'success': False, 'message': 'player_tag is required.'}, status=400)
+
+	try:
+		logger.info(f'Fetching Clash Royale player for tag: {player_tag}')
+		player_data = fetch_cr_player(player_tag)
+		profile, _ = PlayerProfile.objects.get_or_create(user=request.user)
+
+		normalized_tag = player_tag.upper().strip()
+		if normalized_tag.startswith('%23'):
+			normalized_tag = f'#{normalized_tag[3:]}'
+		elif not normalized_tag.startswith('#'):
+			normalized_tag = f'#{normalized_tag}'
+
+		profile.cr_player_tag = normalized_tag
+		profile.cr_trophies = int(player_data['trophies'])
+		profile.cr_best_trophies = int(player_data['bestTrophies'])
+		profile.save()
+
+		logger.info(f'Successfully linked Clash Royale account for user {request.user.username}')
+	except ValueError as exc:
+		logger.error(f'ValueError linking Clash Royale: {str(exc)}')
+		return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+	except RuntimeError as exc:
+		logger.error(f'RuntimeError linking Clash Royale: {str(exc)}')
+		return JsonResponse({'success': False, 'message': str(exc)}, status=502)
+	except Exception as exc:
+		logger.error(f'Unexpected error linking Clash Royale: {str(exc)}', exc_info=True)
+		return JsonResponse({'success': False, 'message': 'Failed to link Clash Royale account. Please check the player tag.'}, status=502)
+
+	return JsonResponse({
+		'success': True,
+		'player_tag': profile.cr_player_tag,
+		'name': player_data['name'],
+		'trophies': profile.cr_trophies,
+		'bestTrophies': profile.cr_best_trophies,
 	})
 
 
