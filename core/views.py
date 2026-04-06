@@ -6,13 +6,13 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.mail import send_mail
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 
 from .forms import CustomUserCreationForm
-from .models import ChatMessage, PlayerProfile, Post
+from .models import ChatMessage, Conversation, Message, PlayerProfile, Post, User
 from .utils import fetch_coc_player, fetch_cr_player
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,24 @@ def _serialize_chat_message(chat_message):
 		'message': chat_message.message,
 		'timestamp': chat_message.timestamp.isoformat(),
 	}
+
+
+def _serialize_dm_message(dm_message):
+	return {
+		'id': dm_message.id,
+		'conversation_id': dm_message.conversation_id,
+		'sender_id': dm_message.sender_id,
+		'sender_name': _display_name(dm_message.sender),
+		'content': dm_message.content,
+		'created_at': dm_message.created_at.isoformat(),
+		'is_read': dm_message.is_read,
+	}
+
+
+def _conversation_partner(conversation, current_user):
+	if conversation.user_one_id == current_user.id:
+		return conversation.user_two
+	return conversation.user_one
 
 
 def _strip_game_prefix(content):
@@ -161,10 +179,12 @@ def game_room(request, game_name):
 
 		leaderboard.append({
 			'rank': rank,
+			'user_id': row.user_id,
 			'player_name': _display_name(row.user),
 			'reputation': row.reputation,
 			'main_score': main_score,
 			'secondary_score': secondary_score,
+			'is_self': row.user_id == request.user.id,
 		})
 
 	room_posts = []
@@ -230,10 +250,12 @@ def leaderboard_data(request):
 		results.append({
 			'rank': index,
 			'profile_id': profile.id,
+			'user_id': profile.user_id,
 			'player_name': _display_name(profile.user),
 			'reputation': profile.reputation,
 			'trophies': profile.trophies,
 			'townhall_level': profile.townhall_level,
+			'is_self': profile.user_id == request.user.id,
 		})
 
 	return JsonResponse({'players': results})
@@ -438,3 +460,145 @@ def get_messages(request):
 		messages.reverse()
 
 	return JsonResponse({'messages': [_serialize_chat_message(message) for message in messages]})
+
+
+@login_required
+@require_POST
+def send_dm(request):
+	conversation_id_raw = request.POST.get('conversation_id', '').strip()
+	recipient_id_raw = request.POST.get('recipient_id', '').strip()
+	content = request.POST.get('message', '').strip()
+
+	if not content:
+		return JsonResponse({'success': False, 'message': 'Message cannot be empty.'}, status=400)
+
+	if conversation_id_raw.isdigit():
+		conversation = Conversation.objects.select_related('user_one', 'user_two').filter(
+			pk=int(conversation_id_raw)
+		).filter(
+			Q(user_one=request.user) | Q(user_two=request.user)
+		).first()
+		if not conversation:
+			return JsonResponse({'success': False, 'message': 'Conversation not found.'}, status=404)
+		recipient = _conversation_partner(conversation, request.user)
+	else:
+		if not recipient_id_raw.isdigit():
+			return JsonResponse({'success': False, 'message': 'A valid recipient_id is required.'}, status=400)
+
+		recipient_id = int(recipient_id_raw)
+		if recipient_id == request.user.id:
+			return JsonResponse({'success': False, 'message': 'You cannot message yourself.'}, status=400)
+
+		try:
+			recipient = User.objects.get(pk=recipient_id)
+		except User.DoesNotExist:
+			return JsonResponse({'success': False, 'message': 'Recipient not found.'}, status=404)
+
+		try:
+			conversation = Conversation.get_or_create_direct(request.user, recipient)
+		except ValueError as exc:
+			return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+
+	dm_message = Message.objects.create(
+		conversation=conversation,
+		sender=request.user,
+		content=content,
+	)
+
+	return JsonResponse({
+		'success': True,
+		'conversation': {
+			'id': conversation.id,
+			'user_one_id': conversation.user_one_id,
+			'user_two_id': conversation.user_two_id,
+			'recipient_id': recipient.id,
+			'recipient_name': _display_name(recipient),
+		},
+		'message': _serialize_dm_message(dm_message),
+	})
+
+
+@login_required
+def get_dm_messages(request):
+	conversation_id_raw = request.GET.get('conversation_id', '').strip()
+	recipient_id_raw = request.GET.get('recipient_id', '').strip()
+	after_id_raw = request.GET.get('after_id', '').strip()
+	conversation = None
+	recipient = None
+
+	if conversation_id_raw.isdigit():
+		conversation = Conversation.objects.select_related('user_one', 'user_two').filter(
+			pk=int(conversation_id_raw)
+		).filter(
+			Q(user_one=request.user) | Q(user_two=request.user)
+		).first()
+		if not conversation:
+			return JsonResponse({'success': False, 'message': 'Conversation not found.'}, status=404)
+		recipient = _conversation_partner(conversation, request.user)
+	else:
+		if not recipient_id_raw.isdigit():
+			return JsonResponse({'success': False, 'message': 'A valid recipient_id is required.'}, status=400)
+
+		recipient_id = int(recipient_id_raw)
+		if recipient_id == request.user.id:
+			return JsonResponse({'success': False, 'message': 'You cannot message yourself.'}, status=400)
+
+		try:
+			recipient = User.objects.get(pk=recipient_id)
+		except User.DoesNotExist:
+			return JsonResponse({'success': False, 'message': 'Recipient not found.'}, status=404)
+
+		user_one, user_two = (request.user, recipient) if request.user.id < recipient.id else (recipient, request.user)
+		conversation = Conversation.objects.filter(user_one=user_one, user_two=user_two).first()
+
+	if not conversation:
+		return JsonResponse({'success': True, 'conversation': None, 'messages': []})
+
+	Message.objects.filter(conversation=conversation, is_read=False).exclude(sender=request.user).update(is_read=True)
+
+	message_qs = Message.objects.select_related('sender').filter(conversation=conversation)
+	if after_id_raw.isdigit():
+		messages = list(message_qs.filter(id__gt=int(after_id_raw)).order_by('created_at', 'id')[:50])
+	else:
+		messages = list(message_qs.order_by('-created_at', '-id')[:50])
+		messages.reverse()
+
+	return JsonResponse({
+		'success': True,
+		'conversation': {
+			'id': conversation.id,
+			'user_one_id': conversation.user_one_id,
+			'user_two_id': conversation.user_two_id,
+			'recipient_id': recipient.id,
+			'recipient_name': _display_name(recipient),
+		},
+		'messages': [_serialize_dm_message(message) for message in messages],
+	})
+
+
+@login_required
+def get_dm_inbox(request):
+	conversations = list(
+		Conversation.objects.filter(
+			Q(user_one=request.user) | Q(user_two=request.user)
+		).select_related('user_one', 'user_two')
+	)
+
+	inbox_rows = []
+	for conversation in conversations:
+		partner = _conversation_partner(conversation, request.user)
+		last_message = conversation.messages.select_related('sender').order_by('-created_at', '-id').first()
+		unread_count = conversation.messages.filter(is_read=False).exclude(sender=request.user).count()
+		last_dt = last_message.created_at if last_message else conversation.updated_at
+		inbox_rows.append({
+			'conversation_id': conversation.id,
+			'partner_id': partner.id,
+			'partner_name': _display_name(partner),
+			'last_message': last_message.content if last_message else '',
+			'last_message_sender_id': last_message.sender_id if last_message else None,
+			'last_message_at': last_dt.isoformat() if last_dt else None,
+			'unread_count': unread_count,
+		})
+
+	inbox_rows.sort(key=lambda row: row['last_message_at'] or '', reverse=True)
+	return JsonResponse({'success': True, 'conversations': inbox_rows})

@@ -1,0 +1,418 @@
+<style>
+    .ms-dm-launcher {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        z-index: 1080;
+        border-radius: 0;
+    }
+    .ms-dm-panel {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        width: min(720px, calc(100vw - 32px));
+        height: min(520px, calc(100vh - 32px));
+        background: #ffffff;
+        border: 1px solid #7f8d9b;
+        box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.25);
+        z-index: 1081;
+        display: grid;
+        grid-template-rows: auto 1fr;
+    }
+    .ms-dm-body {
+        display: grid;
+        grid-template-columns: 38% 62%;
+        min-height: 0;
+    }
+    .ms-dm-list-wrap {
+        border-right: 1px solid #c2ccd6;
+        background: #f8fafc;
+        min-height: 0;
+        overflow-y: auto;
+    }
+    .ms-dm-thread-wrap {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        min-height: 0;
+    }
+    .ms-dm-list-item {
+        border-bottom: 1px solid #d7dfe6;
+        cursor: pointer;
+        background: #f8fafc;
+    }
+    .ms-dm-list-item:hover,
+    .ms-dm-list-item.active {
+        background: #e6eef6;
+    }
+    .ms-dm-thread-messages {
+        min-height: 0;
+        overflow-y: auto;
+        background: #ffffff;
+    }
+    .ms-dm-line {
+        margin-bottom: 8px;
+        line-height: 1.25;
+        font-size: 0.92rem;
+    }
+    .ms-dm-line.self {
+        text-align: right;
+    }
+    .ms-dm-bubble {
+        display: inline-block;
+        border: 1px solid #8ea5b8;
+        background: #e4edf5;
+        padding: 4px 8px;
+    }
+    .ms-dm-line.self .ms-dm-bubble {
+        border-color: #87b08f;
+        background: #d4e8d8;
+    }
+</style>
+
+<button type="button" id="msDmLauncher" class="btn btn-secondary ms-dm-launcher">
+    DMs <span id="msDmLauncherUnread" class="badge text-bg-danger d-none">0</span>
+</button>
+
+<div id="msDmPanel" class="ms-dm-panel d-none" aria-live="polite">
+    <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom bg-light">
+        <div>
+            <div class="fw-semibold">Direct Messages</div>
+            <div class="small text-secondary">Newest chats stay on top</div>
+        </div>
+        <button type="button" id="msDmClose" class="btn btn-sm btn-outline-secondary">Close</button>
+    </div>
+
+    <div class="ms-dm-body">
+        <div class="ms-dm-list-wrap" id="msDmListWrap">
+            <div class="p-2 small text-secondary" id="msDmInboxStatus">Loading chats...</div>
+            <div id="msDmConversationList"></div>
+        </div>
+
+        <div class="ms-dm-thread-wrap">
+            <div class="px-3 py-2 border-bottom bg-light">
+                <div class="fw-semibold" id="msDmThreadTitle">Choose a chat</div>
+                <div class="small text-secondary" id="msDmThreadSubTitle">Pick someone from the list or click Message from leaderboard.</div>
+            </div>
+            <div class="ms-dm-thread-messages p-2" id="msDmThreadMessages"></div>
+            <form id="msDmForm" class="p-2 border-top">
+                <div class="input-group">
+                    <input id="msDmInput" type="text" class="form-control" maxlength="1000" placeholder="Type a message..." required>
+                    <button class="btn btn-secondary" id="msDmSend" type="submit">Send</button>
+                </div>
+                <div class="small text-secondary mt-1" id="msDmSendStatus">Select a chat to start messaging.</div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function ($) {
+        const inboxUrl = '{% url "get_dm_inbox" %}';
+        const threadUrl = '{% url "get_dm_messages" %}';
+        const sendUrl = '{% url "send_dm" %}';
+        const currentUserId = {{ user.id }};
+
+        const $panel = $('#msDmPanel');
+        const $launcher = $('#msDmLauncher');
+        const $launcherUnread = $('#msDmLauncherUnread');
+        const $inboxStatus = $('#msDmInboxStatus');
+        const $conversationList = $('#msDmConversationList');
+        const $threadMessages = $('#msDmThreadMessages');
+        const $threadTitle = $('#msDmThreadTitle');
+        const $threadSubTitle = $('#msDmThreadSubTitle');
+        const $sendStatus = $('#msDmSendStatus');
+        const $sendBtn = $('#msDmSend');
+
+        let activeConversationId = null;
+        let activeRecipientId = null;
+        let activeRecipientName = '';
+        let activeLastMessageId = 0;
+        let inboxPollTimer = null;
+        let threadPollTimer = null;
+
+        function getCookie(name) {
+            const value = '; ' + document.cookie;
+            const parts = value.split('; ' + name + '=');
+            if (parts.length === 2) {
+                return decodeURIComponent(parts.pop().split(';').shift());
+            }
+            return '';
+        }
+
+        function escapeHtml(value) {
+            return $('<div>').text(value === null || value === undefined ? '' : value).html();
+        }
+
+        function updateLauncherUnread(totalUnread) {
+            if (totalUnread > 0) {
+                $launcherUnread.text(totalUnread).removeClass('d-none');
+            } else {
+                $launcherUnread.text('0').addClass('d-none');
+            }
+        }
+
+        function renderInbox(conversations) {
+            $conversationList.empty();
+            let unreadTotal = 0;
+
+            if (!Array.isArray(conversations) || conversations.length === 0) {
+                $inboxStatus.text('No direct messages yet.');
+                updateLauncherUnread(0);
+                return;
+            }
+
+            $inboxStatus.text('');
+
+            conversations.forEach(function (row) {
+                const unread = Number(row.unread_count || 0);
+                unreadTotal += unread;
+                const itemHtml = `
+                    <div class="ms-dm-list-item p-2 ${Number(row.conversation_id) === Number(activeConversationId) ? 'active' : ''}"
+                         data-conversation-id="${escapeHtml(row.conversation_id)}"
+                         data-partner-id="${escapeHtml(row.partner_id)}"
+                         data-partner-name="${escapeHtml(row.partner_name)}">
+                        <div class="d-flex justify-content-between align-items-center gap-2">
+                            <strong class="text-truncate">${escapeHtml(row.partner_name)}</strong>
+                            ${unread > 0 ? `<span class="badge text-bg-danger">${escapeHtml(unread)}</span>` : ''}
+                        </div>
+                        <div class="small text-secondary text-truncate">${escapeHtml(row.last_message || 'No messages yet')}</div>
+                    </div>
+                `;
+                $conversationList.append(itemHtml);
+            });
+
+            updateLauncherUnread(unreadTotal);
+        }
+
+        function appendThreadMessage(message) {
+            const isSelf = Number(message.sender_id) === Number(currentUserId);
+            const html = `
+                <div class="ms-dm-line ${isSelf ? 'self' : ''}" data-message-id="${escapeHtml(message.id)}">
+                    <span class="ms-dm-bubble"><strong>${escapeHtml(message.sender_name)}:</strong> ${escapeHtml(message.content)}</span>
+                </div>
+            `;
+            $threadMessages.append(html);
+            activeLastMessageId = Math.max(activeLastMessageId, Number(message.id) || 0);
+        }
+
+        function scrollThreadToBottom() {
+            $threadMessages.scrollTop($threadMessages.prop('scrollHeight'));
+        }
+
+        function setActiveConversation(conversationId, partnerId, partnerName) {
+            activeConversationId = conversationId ? Number(conversationId) : null;
+            activeRecipientId = partnerId ? Number(partnerId) : null;
+            activeRecipientName = partnerName || '';
+            activeLastMessageId = 0;
+            $threadMessages.empty();
+            $threadTitle.text(activeRecipientName ? ('Chat with ' + activeRecipientName) : 'Choose a chat');
+            $threadSubTitle.text(activeRecipientName ? 'Private 1:1 conversation' : 'Pick someone from the list or click Message from leaderboard.');
+        }
+
+        function loadInbox() {
+            $.ajax({
+                url: inboxUrl,
+                method: 'GET',
+                success: function (response) {
+                    if (!response.success) {
+                        $inboxStatus.text(response.message || 'Failed to load chats.');
+                        return;
+                    }
+                    renderInbox(response.conversations || []);
+                },
+                error: function () {
+                    $inboxStatus.text('Failed to load chats.');
+                }
+            });
+        }
+
+        function loadThread(options) {
+            const params = {};
+            if (options && options.conversationId) {
+                params.conversation_id = options.conversationId;
+            } else if (options && options.recipientId) {
+                params.recipient_id = options.recipientId;
+            } else if (activeConversationId) {
+                params.conversation_id = activeConversationId;
+            } else if (activeRecipientId) {
+                params.recipient_id = activeRecipientId;
+            } else {
+                return;
+            }
+
+            if (options && options.afterId) {
+                params.after_id = options.afterId;
+            }
+
+            $.ajax({
+                url: threadUrl,
+                method: 'GET',
+                data: params,
+                success: function (response) {
+                    if (!response.success) {
+                        $sendStatus.text(response.message || 'Failed to load conversation.');
+                        return;
+                    }
+
+                    if (response.conversation) {
+                        activeConversationId = Number(response.conversation.id);
+                        activeRecipientId = Number(response.conversation.recipient_id || activeRecipientId);
+                        activeRecipientName = response.conversation.recipient_name || activeRecipientName;
+                        $threadTitle.text('Chat with ' + activeRecipientName);
+                        $threadSubTitle.text('Private 1:1 conversation');
+                    }
+
+                    const messages = Array.isArray(response.messages) ? response.messages : [];
+                    if (!options || !options.afterId) {
+                        $threadMessages.empty();
+                        activeLastMessageId = 0;
+                    }
+
+                    messages.forEach(appendThreadMessage);
+                    if (messages.length > 0) {
+                        scrollThreadToBottom();
+                    }
+
+                    if (activeRecipientName) {
+                        $sendStatus.text('Connected. Newest chats are listed first.');
+                    }
+
+                    loadInbox();
+                },
+                error: function () {
+                    $sendStatus.text('Failed to load conversation.');
+                }
+            });
+        }
+
+        function openPanel() {
+            $panel.removeClass('d-none');
+            $launcher.addClass('d-none');
+            loadInbox();
+        }
+
+        function closePanel() {
+            $panel.addClass('d-none');
+            $launcher.removeClass('d-none');
+        }
+
+        function startPolling() {
+            if (inboxPollTimer) {
+                clearInterval(inboxPollTimer);
+            }
+            if (threadPollTimer) {
+                clearInterval(threadPollTimer);
+            }
+
+            inboxPollTimer = setInterval(loadInbox, 4000);
+            threadPollTimer = setInterval(function () {
+                if (activeConversationId || activeRecipientId) {
+                    loadThread({ afterId: activeLastMessageId });
+                }
+            }, 3000);
+        }
+
+        $.ajaxSetup({
+            beforeSend: function (xhr, settings) {
+                if ((settings.type || '').toUpperCase() === 'POST') {
+                    const csrfToken = getCookie('csrftoken');
+                    if (csrfToken) {
+                        xhr.setRequestHeader('X-CSRFToken', csrfToken);
+                    }
+                }
+            }
+        });
+
+        $launcher.on('click', openPanel);
+        $('#msDmClose').on('click', closePanel);
+
+        $('#msDmConversationList').on('click', '.ms-dm-list-item', function () {
+            const $item = $(this);
+            setActiveConversation($item.data('conversation-id'), $item.data('partner-id'), $item.data('partner-name'));
+            loadThread({ conversationId: activeConversationId });
+            $('.ms-dm-list-item').removeClass('active');
+            $item.addClass('active');
+        });
+
+        $('#msDmForm').on('submit', function (event) {
+            event.preventDefault();
+            const message = $('#msDmInput').val().trim();
+            if (!message) {
+                $sendStatus.text('Type a message first.');
+                return;
+            }
+
+            if (!activeConversationId && !activeRecipientId) {
+                $sendStatus.text('Select a chat first.');
+                return;
+            }
+
+            const payload = { message: message };
+            if (activeConversationId) {
+                payload.conversation_id = activeConversationId;
+            } else {
+                payload.recipient_id = activeRecipientId;
+            }
+
+            $sendBtn.prop('disabled', true);
+            $sendStatus.text('Sending...');
+
+            $.ajax({
+                url: sendUrl,
+                method: 'POST',
+                data: payload,
+                success: function (response) {
+                    if (!response.success || !response.message) {
+                        $sendStatus.text(response.message || 'Could not send message.');
+                        return;
+                    }
+
+                    if (response.conversation) {
+                        activeConversationId = Number(response.conversation.id);
+                        activeRecipientId = Number(response.conversation.recipient_id || activeRecipientId);
+                        activeRecipientName = response.conversation.recipient_name || activeRecipientName;
+                        $threadTitle.text('Chat with ' + activeRecipientName);
+                    }
+
+                    appendThreadMessage(response.message);
+                    scrollThreadToBottom();
+                    $('#msDmInput').val('');
+                    $sendStatus.text('Message sent.');
+                    loadInbox();
+                },
+                error: function (xhr) {
+                    const msg = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Could not send message.';
+                    $sendStatus.text(msg);
+                },
+                complete: function () {
+                    $sendBtn.prop('disabled', false);
+                }
+            });
+        });
+
+        $(document).on('click', '.js-open-dm-sidebar', function () {
+            const recipientId = Number($(this).data('recipient-id'));
+            const recipientName = ($(this).data('recipient-name') || 'Player').toString();
+            if (!recipientId) {
+                return;
+            }
+
+            openPanel();
+            setActiveConversation(null, recipientId, recipientName);
+            loadThread({ recipientId: recipientId });
+            $sendStatus.text('Chat opened with ' + recipientName + '.');
+        });
+
+        startPolling();
+        loadInbox();
+
+        $(window).on('beforeunload', function () {
+            if (inboxPollTimer) {
+                clearInterval(inboxPollTimer);
+            }
+            if (threadPollTimer) {
+                clearInterval(threadPollTimer);
+            }
+        });
+    })(jQuery);
+</script>

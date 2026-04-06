@@ -14,6 +14,9 @@ urlpatterns = [
     path('submit-post/', views.submit_post, name='submit_post'),
     path('vote-post/<int:post_id>/', views.vote_post, name='vote_post'),
     path('send-message/', views.send_message, name='send_message'),
+    path('send-dm/', views.send_dm, name='send_dm'),
+    path('get-dm-inbox/', views.get_dm_inbox, name='get_dm_inbox'),
+    path('get-dm-messages/', views.get_dm_messages, name='get_dm_messages'),
     path('get-messages/', views.get_messages, name='get_messages'),
     path('login/', views.auth_page, name='login'),
     path(
