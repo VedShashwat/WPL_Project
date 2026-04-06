@@ -197,7 +197,6 @@
             {% if user.is_authenticated %}
                 <span class="badge reputation-badge align-self-center">Rep {{ profile.reputation }}</span>
                 <span class="badge text-bg-secondary align-self-center">Logged in as {{ user.username }}</span>
-                <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#linkGameModal">Link Game Account</button>
                 <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#linkCocModal">Link CoC</button>
                 <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#linkCrModal">Link Clash Royale</button>
                 <a class="btn btn-secondary" href="{% url 'logout' %}">Logout</a>
@@ -216,30 +215,6 @@
                         <div class="display-6 stat-value">
                             {{ user.get_full_name|default:user.username }}
                             <span class="badge reputation-badge align-middle ms-2">Rep {{ profile.reputation }}</span>
-                        </div>
-                    </div>
-
-                    <div class="mb-4">
-                        <h3 class="h5 text-secondary mb-3">Generic Game Profile</h3>
-                        <div class="row g-3">
-                            <div class="col-md-4">
-                                <div class="p-3 h-100 metric-box">
-                                    <div class="stat-label">Game ID</div>
-                                    <div class="stat-value fs-5" id="game-id-value">{{ profile.game_id|default:'Not set' }}</div>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="p-3 h-100 metric-box">
-                                    <div class="stat-label">Current Rank</div>
-                                    <div class="stat-value fs-5" id="rank-value">{{ profile.current_rank }}</div>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="p-3 h-100 metric-box">
-                                    <div class="stat-label">Win Rate</div>
-                                    <div class="stat-value fs-5" id="win-rate-value">{{ profile.win_rate }}%</div>
-                                </div>
-                            </div>
                         </div>
                     </div>
 
@@ -371,16 +346,6 @@
                         </div>
                     </div>
 
-                    <div class="mb-4">
-                        <div class="d-flex justify-content-between mb-2">
-                            <span class="stat-label">Win Rate Progress</span>
-                            <span class="stat-value" id="win-rate-progress-text">{{ profile.win_rate }}%</span>
-                        </div>
-                        <div class="progress bg-dark" style="height: 18px;">
-                            <div class="progress-bar bg-secondary" id="win-rate-progress-bar" role="progressbar" style="width: {{ profile.win_rate }}%;" aria-valuenow="{{ profile.win_rate }}" aria-valuemin="0" aria-valuemax="100"></div>
-                        </div>
-                    </div>
-
                     <div class="mb-2">
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <h3 class="h5 text-secondary mb-0">Global Chat</h3>
@@ -466,32 +431,32 @@
                         <div class="stat-value" id="lb-profile-reputation">-</div>
                     </div>
                     <div class="col-6">
-                        <div class="stat-label">Game ID</div>
-                        <div class="stat-value" id="lb-profile-game-id">-</div>
-                    </div>
-                    <div class="col-6">
-                        <div class="stat-label">Current Rank</div>
-                        <div class="stat-value" id="lb-profile-current-rank">-</div>
-                    </div>
-                    <div class="col-6">
-                        <div class="stat-label">Win Rate</div>
-                        <div class="stat-value" id="lb-profile-win-rate">-</div>
-                    </div>
-                    <div class="col-6">
                         <div class="stat-label">CoC Tag</div>
                         <div class="stat-value" id="lb-profile-player-tag">-</div>
                     </div>
                     <div class="col-6">
-                        <div class="stat-label">Trophies</div>
+                        <div class="stat-label">CoC Trophies</div>
                         <div class="stat-value" id="lb-profile-trophies">-</div>
                     </div>
                     <div class="col-6">
-                        <div class="stat-label">Town Hall</div>
+                        <div class="stat-label">CoC Town Hall</div>
                         <div class="stat-value" id="lb-profile-townhall">-</div>
                     </div>
                     <div class="col-6">
-                        <div class="stat-label">Exp Level</div>
+                        <div class="stat-label">CoC Exp Level</div>
                         <div class="stat-value" id="lb-profile-exp-level">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-label">CR Tag</div>
+                        <div class="stat-value" id="lb-profile-cr-player-tag">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-label">CR Trophies</div>
+                        <div class="stat-value" id="lb-profile-cr-trophies">-</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-label">CR Best Trophies</div>
+                        <div class="stat-value" id="lb-profile-cr-best-trophies">-</div>
                     </div>
                 </div>
                 <div class="alert alert-danger d-none mt-3" id="leaderboard-profile-error"></div>
@@ -499,98 +464,6 @@
         </div>
     </div>
 </div>
-
-<div class="modal fade" id="linkGameModal" tabindex="-1" aria-labelledby="linkGameModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header border-secondary">
-                <h5 class="modal-title" id="linkGameModalLabel">Link Game Account</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <form id="link-game-form">
-                {% csrf_token %}
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="gameIdInput" class="form-label">Game ID</label>
-                        <input type="text" class="form-control" id="gameIdInput" name="game_id" placeholder="Enter your game ID" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="platformInput" class="form-label">Platform</label>
-                        <select class="form-select" id="platformInput" name="platform" required>
-                            <option value="" selected disabled>Select platform</option>
-                            <option value="PC">PC</option>
-                            <option value="PlayStation">PlayStation</option>
-                            <option value="Xbox">Xbox</option>
-                            <option value="Mobile">Mobile</option>
-                        </select>
-                    </div>
-                    <div class="alert alert-danger d-none" id="link-game-error"></div>
-                    <div class="d-flex align-items-center gap-2 d-none" id="link-game-loading">
-                        <div class="spinner-border spinner-border-sm text-info" role="status" aria-hidden="true"></div>
-                        <span>Linking account...</span>
-                    </div>
-                </div>
-                <div class="modal-footer border-secondary">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-secondary" id="link-game-submit">Link Account</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<script>
-    $(function () {
-        const modalElement = document.getElementById('linkGameModal');
-        const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
-
-        $('#link-game-form').on('submit', function (event) {
-            event.preventDefault();
-
-            const $form = $(this);
-            const $submit = $('#link-game-submit');
-            const $loading = $('#link-game-loading');
-            const $error = $('#link-game-error');
-
-            $error.addClass('d-none').text('');
-            $submit.prop('disabled', true);
-            $loading.removeClass('d-none');
-
-            $.ajax({
-                url: '{% url "update_game_profile" %}',
-                method: 'POST',
-                data: $form.serialize(),
-                success: function (response) {
-                    $('#game-id-value').text(response.game_id);
-                    $('#rank-value').text(response.current_rank);
-                    $('#win-rate-value').text(response.win_rate + '%');
-                    $('#win-rate-progress-text').text(response.win_rate + '%');
-                    $('#win-rate-progress-bar')
-                        .css('width', response.win_rate + '%')
-                        .attr('aria-valuenow', response.win_rate);
-
-                    modal.hide();
-                    $form[0].reset();
-                },
-                error: function (xhr) {
-                    const message = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : 'Unable to link game account.';
-                    $error.removeClass('d-none').text(message);
-                },
-                complete: function () {
-                    $submit.prop('disabled', false);
-                    $loading.addClass('d-none');
-                }
-            });
-        });
-
-        modalElement.addEventListener('hidden.bs.modal', function () {
-            $('#link-game-error').addClass('d-none').text('');
-            $('#link-game-form')[0].reset();
-            $('#link-game-submit').prop('disabled', false);
-            $('#link-game-loading').addClass('d-none');
-        });
-    });
-</script>
 
 <div class="modal fade" id="linkCocModal" tabindex="-1" aria-labelledby="linkCocModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -846,13 +719,13 @@
         function setProfileModalValues(profile) {
             $('#lb-profile-player-name').text(profile.player_name || '-');
             $('#lb-profile-reputation').text('Rep ' + (profile.reputation ?? 0));
-            $('#lb-profile-game-id').text(profile.game_id || '-');
-            $('#lb-profile-current-rank').text(profile.current_rank || '-');
-            $('#lb-profile-win-rate').text((profile.win_rate ?? 0) + '%');
             $('#lb-profile-player-tag').text(profile.player_tag || '-');
             $('#lb-profile-trophies').text(profile.trophies ?? 0);
             $('#lb-profile-townhall').text(profile.townhall_level ?? 0);
             $('#lb-profile-exp-level').text(profile.exp_level ?? 0);
+            $('#lb-profile-cr-player-tag').text(profile.cr_player_tag || '-');
+            $('#lb-profile-cr-trophies').text(profile.cr_trophies ?? 0);
+            $('#lb-profile-cr-best-trophies').text(profile.cr_best_trophies ?? 0);
         }
 
         function renderLeaderboardRows(players) {

@@ -5,7 +5,6 @@ from . import views
 
 urlpatterns = [
     path('', views.dashboard, name='dashboard'),
-    path('update-game-profile/', views.update_game_profile, name='update_game_profile'),
     path('link-coc-account/', views.link_coc_account, name='link_coc_account'),
     path('link-cr-account/', views.link_cr_account, name='link_cr_account'),
     path('leaderboard-data/', views.leaderboard_data, name='leaderboard_data'),

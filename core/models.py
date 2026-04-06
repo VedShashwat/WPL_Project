@@ -8,9 +8,6 @@ class User(AbstractUser):
 
 class PlayerProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='player_profile')
-    game_id = models.CharField(max_length=100)
-    current_rank = models.CharField(max_length=50, default='Unranked')
-    win_rate = models.FloatField(default=0.0)
     reputation = models.IntegerField(default=0)
     player_tag = models.CharField(max_length=30, blank=True)
     trophies = models.IntegerField(default=0)
@@ -21,7 +18,7 @@ class PlayerProfile(models.Model):
     cr_best_trophies = models.IntegerField(default=0)
 
     def __str__(self):
-        return f"{self.user.username} - {self.game_id}"
+        return f"{self.user.username} - profile"
 
 
 class Post(models.Model):

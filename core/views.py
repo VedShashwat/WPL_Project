@@ -1,5 +1,4 @@
 import logging
-import time
 
 from django.contrib import messages
 from django.contrib.auth import login as auth_login
@@ -142,41 +141,14 @@ def leaderboard_profile_data(request, profile_id):
 		'profile': {
 			'player_name': _display_name(profile.user),
 			'reputation': profile.reputation,
-			'game_id': profile.game_id,
-			'current_rank': profile.current_rank,
-			'win_rate': profile.win_rate,
 			'player_tag': profile.player_tag,
 			'trophies': profile.trophies,
 			'townhall_level': profile.townhall_level,
 			'exp_level': profile.exp_level,
+			'cr_player_tag': profile.cr_player_tag,
+			'cr_trophies': profile.cr_trophies,
+			'cr_best_trophies': profile.cr_best_trophies,
 		},
-	})
-
-
-@login_required
-@require_POST
-def update_game_profile(request):
-	game_id = request.POST.get('game_id', '').strip()
-	platform = request.POST.get('platform', '').strip()
-
-	if not game_id or not platform:
-		return JsonResponse({'success': False, 'message': 'Game ID and platform are required.'}, status=400)
-
-	time.sleep(2)
-
-	profile, _ = PlayerProfile.objects.get_or_create(user=request.user)
-	profile.game_id = game_id
-	profile.current_rank = 'Gold'
-	profile.win_rate = 55.0
-	profile.save()
-
-	return JsonResponse({
-		'success': True,
-		'message': 'Game account linked successfully.',
-		'game_id': profile.game_id,
-		'current_rank': profile.current_rank,
-		'win_rate': profile.win_rate,
-		'platform': platform,
 	})
 
 
@@ -199,7 +171,6 @@ def link_coc_account(request):
 			normalized_tag = f'#{normalized_tag}'
 
 		profile.player_tag = normalized_tag
-		profile.game_id = player_data['name'] or profile.game_id
 		profile.trophies = int(player_data['trophies'])
 		profile.townhall_level = int(player_data['townHallLevel'])
 		profile.exp_level = int(player_data['expLevel'])
